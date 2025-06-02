@@ -1,0 +1,180 @@
+{% extends 'detector/base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-lg-8 mx-auto">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h3 class="text-center mb-0">
+                        <i class="fas fa-shield-alt me-2"></i>Deepfake Detection
+                    </h3>
+                </div>
+                <div class="card-body">
+        {% if error %}
+                    <div class="alert alert-danger">
+                        <i class="fas fa-exclamation-circle me-2"></i>{{ error }}
+        </div>
+        {% endif %}
+
+                    <form method="post" enctype="multipart/form-data" class="mb-4">
+                {% csrf_token %}
+                        <div class="upload-area mb-3 text-center p-5 border-2 border-dashed rounded-3" 
+                             style="border: 2px dashed var(--primary-color); background: rgba(37,99,235,0.05);">
+                            <i class="fas fa-cloud-upload-alt fa-3x mb-3" style="color: var(--primary-color);"></i>
+                            <h5 class="mb-3">Drag and drop an image or click to upload</h5>
+                            <input type="file" class="form-control" id="image" name="image" accept="image/*" required
+                                   style="display: none;">
+                            <button type="button" class="btn btn-outline-primary" onclick="document.getElementById('image').click()">
+                                <i class="fas fa-image me-2"></i>Choose Image
+                            </button>
+                        </div>
+                        <div class="text-center">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-search me-2"></i>Analyze Image
+                            </button>
+                </div>
+            </form>
+
+        {% if detection %}
+                    <div class="mt-4">
+                        <h4 class="text-center mb-3">Analysis Results</h4>
+                        <div class="text-center">
+                            <div class="position-relative d-inline-block">
+                                {% if detection.image %}
+                                <img src="{{ detection.image.url }}" alt="Analyzed image" class="img-fluid rounded-3 mb-3" style="max-height: 300px;">
+                                {% else %}
+                                <div class="rounded-3 bg-light d-flex align-items-center justify-content-center mb-3" style="height: 300px; width: 300px;">
+                                    <i class="fas fa-image fa-3x text-muted"></i>
+                                </div>
+                                {% endif %}
+                                {% if detection.boxes %}
+                                <div class="detection-boxes" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;"></div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="alert alert-{{ detection.label|lower|yesno:'success,danger' }} d-flex align-items-center">
+                            <div class="flex-grow-1">
+                                <h5 class="alert-heading">
+                                    <i class="fas fa-{{ detection.label|lower|yesno:'check-circle,exclamation-circle' }} me-2"></i>
+                                    {{ detection.label }}
+                                </h5>
+                                <p class="mb-0">
+                                    <strong>Confidence:</strong> {{ detection.confidence|floatformat:2 }}%<br>
+                                    <strong>Processing Time:</strong> {{ processing_time }}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    {% if history %}
+                    <div class="mt-5">
+                        <h4 class="text-center mb-3">
+                            <i class="fas fa-history me-2"></i>Recent Detections
+                        </h4>
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Image</th>
+                                        <th>Result</th>
+                                        <th>Confidence</th>
+                                        <th>Time</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for detection in history %}
+                                    <tr>
+                                        <td>
+                                            {% if detection.image %}
+                                            <img src="{{ detection.image.url }}" alt="Detection thumbnail" 
+                                                 class="rounded-3" style="height: 50px; width: 50px; object-fit: cover;">
+                                            {% else %}
+                                            <div class="rounded-3 bg-light d-flex align-items-center justify-content-center" 
+                                                 style="height: 50px; width: 50px;">
+                                                <i class="fas fa-image text-muted"></i>
+                                            </div>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            <span class="badge bg-{{ detection.label|lower|yesno:'success,danger' }}">
+                                                <i class="fas fa-{{ detection.label|lower|yesno:'check,times' }} me-1"></i>
+                                                {{ detection.label }}
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <div class="progress" style="height: 20px; width: 100px;">
+                                                <div class="progress-bar detection-progress-bar"
+                                                     role="progressbar"
+                                                     data-confidence="{{ detection.confidence|floatformat:0 }}"
+                                                     data-label="{{ detection.label }}"
+                                                     style="width: 0">
+                                                    {{ detection.confidence|floatformat:2 }}%
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td>{{ detection.created_at|timesince }} ago</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const uploadArea = document.querySelector('.upload-area');
+    const fileInput = document.getElementById('image');
+    
+    // Handle drag and drop
+    uploadArea.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        uploadArea.style.backgroundColor = 'rgba(37,99,235,0.1)';
+    });
+    
+    uploadArea.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        uploadArea.style.backgroundColor = 'rgba(37,99,235,0.05)';
+    });
+    
+    uploadArea.addEventListener('drop', (e) => {
+        e.preventDefault();
+        uploadArea.style.backgroundColor = 'rgba(37,99,235,0.05)';
+        
+        if (e.dataTransfer.files.length) {
+            fileInput.files = e.dataTransfer.files;
+            updateFileName(e.dataTransfer.files[0].name);
+        }
+    });
+    
+    // Handle file selection
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length) {
+            updateFileName(e.target.files[0].name);
+        }
+    });
+    
+    function updateFileName(name) {
+        const button = uploadArea.querySelector('button');
+        button.innerHTML = `<i class="fas fa-file me-2"></i>${name}`;
+    }
+
+    // Initialize progress bars
+    document.querySelectorAll('.detection-progress-bar').forEach(bar => {
+        const confidence = bar.dataset.confidence;
+        const label = bar.dataset.label;
+        
+        bar.style.width = confidence + '%';
+        bar.classList.add(label === 'Real' ? 'bg-success' : 'bg-danger');
+    });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,326 @@
+{% extends 'detector/base.html' %}
+{% load static %}
+
+{% block extra_css %}
+<style>
+    .video-container {
+        position: relative;
+        width: 640px;
+        height: 480px;
+        margin: 0 auto;
+    }
+
+    #webcam {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        border-radius: 12px;
+        object-fit: cover;
+    }
+
+    #overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        border-radius: 12px;
+    }
+
+    .controls {
+        margin-top: 1rem;
+    }
+
+    .status-badge {
+        position: absolute;
+        top: 1rem;
+        right: 1rem;
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        background: rgba(0,0,0,0.7);
+        color: white;
+        font-weight: 500;
+        display: none;
+    }
+
+    .status-badge.active {
+        display: block;
+    }
+
+    .metrics {
+        display: flex;
+        justify-content: space-around;
+        margin-top: 2rem;
+    }
+
+    .metric-card {
+        text-align: center;
+        padding: 1rem;
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        min-width: 150px;
+    }
+
+    .metric-value {
+        font-size: 1.5rem;
+        font-weight: 600;
+        color: var(--primary-color);
+    }
+
+    .metric-label {
+        font-size: 0.875rem;
+        color: var(--text-color);
+        opacity: 0.7;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-lg-10 mx-auto">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="text-center mb-0">
+                        <i class="fas fa-video me-2"></i>Live Deepfake Detection
+                    </h3>
+                </div>
+                <div class="card-body">
+                    <!-- Add hidden API key field -->
+                    <input type="hidden" id="apiKey" value="{{ api_key }}">
+                    
+                    <div class="video-container mb-4">
+                        <video id="webcam" autoplay playsinline></video>
+                        <canvas id="overlay"></canvas>
+                        <div class="status-badge" id="statusBadge"></div>
+                    </div>
+
+                    <div class="controls text-center">
+                        <button id="startBtn" class="btn btn-primary me-2">
+                            <i class="fas fa-play me-1"></i>Start Camera
+                        </button>
+                        <button id="stopBtn" class="btn btn-danger me-2" disabled>
+                            <i class="fas fa-stop me-1"></i>Stop Camera
+                        </button>
+                        <button id="captureBtn" class="btn btn-success" disabled>
+                            <i class="fas fa-camera me-1"></i>Capture & Analyze
+                        </button>
+                    </div>
+
+                    <div class="metrics">
+                        <div class="metric-card">
+                            <div class="metric-value" id="totalScans">0</div>
+                            <div class="metric-label">Total Scans</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-value" id="avgConfidence">0%</div>
+                            <div class="metric-label">Avg. Confidence</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-value" id="detectionTime">0ms</div>
+                            <div class="metric-label">Detection Time</div>
+                        </div>
+                    </div>
+
+                    <div id="result" class="mt-4">
+                        <div class="alert" role="alert" style="display: none;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const video = document.getElementById('webcam');
+const overlay = document.getElementById('overlay');
+const startBtn = document.getElementById('startBtn');
+const stopBtn = document.getElementById('stopBtn');
+const captureBtn = document.getElementById('captureBtn');
+const resultDiv = document.getElementById('result');
+const alertDiv = resultDiv.querySelector('.alert');
+const statusBadge = document.getElementById('statusBadge');
+
+// Metrics elements
+const totalScansEl = document.getElementById('totalScans');
+const avgConfidenceEl = document.getElementById('avgConfidence');
+const detectionTimeEl = document.getElementById('detectionTime');
+
+// Tracking metrics
+let totalScans = 0;
+let confidenceSum = 0;
+let lastDetectionTime = 0;
+
+let stream = null;
+let isAnalyzing = false;
+
+startBtn.addEventListener('click', async () => {
+    try {
+        stream = await navigator.mediaDevices.getUserMedia({ 
+            video: { 
+                width: 640,
+                height: 480,
+                facingMode: 'user'
+            } 
+        });
+        video.srcObject = stream;
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
+        captureBtn.disabled = false;
+        
+        // Start continuous analysis if supported
+        startContinuousAnalysis();
+    } catch (err) {
+        console.error('Error accessing webcam:', err);
+        showAlert('Error accessing webcam: ' + err.message, 'danger');
+    }
+});
+
+stopBtn.addEventListener('click', () => {
+    if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        video.srcObject = null;
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+        captureBtn.disabled = true;
+        isAnalyzing = false;
+        statusBadge.style.display = 'none';
+    }
+});
+
+async function analyzeFrame() {
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    
+    // Get frame data
+    const frame = canvas.toDataURL('image/jpeg');
+    
+    try {
+        const startTime = performance.now();
+        
+        // Get API key from hidden input
+        const apiKey = document.getElementById('apiKey').value;
+        if (!apiKey) {
+            throw new Error('API key not found');
+        }
+        
+        // Send frame for analysis
+        const response = await fetch('/api/detect/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-API-Key': apiKey
+            },
+            body: JSON.stringify({ frame })
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to analyze frame');
+        }
+        
+        const result = await response.json();
+        const endTime = performance.now();
+        lastDetectionTime = endTime - startTime;
+        
+        // Update metrics
+        totalScans++;
+        confidenceSum += result.confidence;
+        
+        totalScansEl.textContent = totalScans;
+        avgConfidenceEl.textContent = `${(confidenceSum / totalScans).toFixed(1)}%`;
+        detectionTimeEl.textContent = `${lastDetectionTime.toFixed(0)}ms`;
+        
+        // Update status badge
+        statusBadge.textContent = `${result.label} (${result.confidence.toFixed(1)}%)`;
+        statusBadge.className = 'status-badge active';
+        statusBadge.style.backgroundColor = result.label === 'Fake' ? 
+            'rgba(220, 53, 69, 0.8)' : 'rgba(25, 135, 84, 0.8)';
+            
+        // Draw boxes if available
+        if (result.boxes && result.boxes.length > 0) {
+            const overlayCtx = overlay.getContext('2d');
+            overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+            overlayCtx.strokeStyle = result.label === 'Fake' ? '#dc3545' : '#198754';
+            overlayCtx.lineWidth = 2;
+            
+            for (const box of result.boxes) {
+                overlayCtx.strokeRect(
+                    box.x * overlay.width,
+                    box.y * overlay.height,
+                    box.width * overlay.width,
+                    box.height * overlay.height
+                );
+            }
+        }
+        
+        return result;
+    } catch (error) {
+        console.error('Analysis error:', error);
+        statusBadge.textContent = 'Error';
+        statusBadge.className = 'status-badge active';
+        statusBadge.style.backgroundColor = 'rgba(220, 53, 69, 0.8)';
+        throw error;
+    }
+}
+
+async function startContinuousAnalysis() {
+    isAnalyzing = true;
+    
+    while (isAnalyzing && stream) {
+        try {
+            await analyzeFrame();
+            // Small delay to prevent overwhelming the server
+            await new Promise(resolve => setTimeout(resolve, 500));
+        } catch (error) {
+            console.error('Continuous analysis error:', error);
+            showAlert(error.message, 'danger');
+            // Longer delay on error
+            await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+    }
+}
+
+captureBtn.addEventListener('click', async () => {
+    try {
+        captureBtn.disabled = true;
+        const result = await analyzeFrame();
+        showAlert(
+            `Detection Result: ${result.label} (${result.confidence.toFixed(1)}% confidence)`,
+            result.label === 'Fake' ? 'danger' : 'success'
+        );
+    } catch (error) {
+        showAlert(error.message, 'danger');
+    } finally {
+        captureBtn.disabled = false;
+    }
+});
+
+function showAlert(message, type) {
+    alertDiv.textContent = message;
+    alertDiv.className = `alert alert-${type}`;
+    alertDiv.style.display = 'block';
+    
+    // Auto-hide after 5 seconds
+    setTimeout(() => {
+        alertDiv.style.display = 'none';
+    }, 5000);
+}
+
+// Initialize canvas size
+function initializeOverlay() {
+    overlay.width = video.videoWidth || 640;
+    overlay.height = video.videoHeight || 480;
+}
+
+video.addEventListener('loadedmetadata', initializeOverlay);
+</script>
+{% endblock %}

@@ -1,0 +1,284 @@
+{% extends 'detector/base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="container">
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h4 class="mb-0">
+                        <i class="fas fa-chart-line me-2 text-primary"></i>
+                        Detection Analytics
+                    </h4>
+                    <div class="btn-group">
+                        <button class="btn btn-outline-primary" data-period="day">Day</button>
+                        <button class="btn btn-outline-primary active" data-period="week">Week</button>
+                        <button class="btn btn-outline-primary" data-period="month">Month</button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="row g-4">
+                        <div class="col-md-3">
+                            <div class="stats-card bg-primary bg-opacity-10 rounded-4 p-3">
+                                <h6 class="text-primary mb-2">Total Detections</h6>
+                                <h3 class="mb-0">{{ total_detections }}</h3>
+                                <div class="mt-2 text-success">
+                                    <i class="fas fa-arrow-up"></i>
+                                    <small>12% vs last week</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="stats-card bg-danger bg-opacity-10 rounded-4 p-3">
+                                <h6 class="text-danger mb-2">Fake Detected</h6>
+                                <h3 class="mb-0">{{ fake_count }}</h3>
+                                <div class="mt-2">
+                                    <small>{{ fake_percentage }}% of total</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="stats-card bg-success bg-opacity-10 rounded-4 p-3">
+                                <h6 class="text-success mb-2">Real Detected</h6>
+                                <h3 class="mb-0">{{ real_count }}</h3>
+                                <div class="mt-2">
+                                    <small>{{ real_percentage }}% of total</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="stats-card bg-info bg-opacity-10 rounded-4 p-3">
+                                <h6 class="text-info mb-2">Avg. Confidence</h6>
+                                <h3 class="mb-0">{{ avg_confidence|floatformat:1 }}%</h3>
+                                <div class="mt-2">
+                                    <small>Based on last 100 detections</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <div class="card h-100">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="fas fa-history me-2 text-primary"></i>
+                        Detection History
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle">
+                            <thead>
+                                <tr>
+                                    <th>Image</th>
+                                    <th>Label</th>
+                                    <th>Confidence</th>
+                                    <th>Time</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for detection in recent_detections %}
+                                <tr>
+                                    <td>
+                                        {% if detection.image %}
+                                        <img src="{{ detection.image.url }}" alt="Detection thumbnail" 
+                                             class="rounded" style="height: 40px; width: 40px; object-fit: cover;">
+                                        {% else %}
+                                        <div class="rounded bg-light d-flex align-items-center justify-content-center" 
+                                             style="height: 40px; width: 40px;">
+                                            <i class="fas fa-image text-muted"></i>
+                                        </div>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <span class="badge {% if detection.label == 'Fake' %}bg-danger{% else %}bg-success{% endif %}">
+                                            {{ detection.label }}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <div class="progress" style="width: 100px; height: 6px;">
+                                            <div class="progress-bar {% if detection.label == 'Fake' %}bg-danger{% else %}bg-success{% endif %}"
+                                                 role="progressbar"
+                                                 data-width="{{ detection.confidence|floatformat:0 }}"
+                                                 style="width: 0%">
+                                            </div>
+                                        </div>
+                                        <small class="text-muted">{{ detection.confidence|floatformat:1 }}%</small>
+                                    </td>
+                                    <td>
+                                        <small class="text-muted">{{ detection.created_at|timesince }} ago</small>
+                                    </td>
+                                    <td>
+                                        {% if detection.status == 'completed' %}
+                                        <span class="badge bg-success">Completed</span>
+                                        {% elif detection.status == 'failed' %}
+                                        <span class="badge bg-danger">Failed</span>
+                                        {% else %}
+                                        <span class="badge bg-warning">Processing</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="fas fa-chart-pie me-2 text-primary"></i>
+                        Detection Distribution
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="text-center mb-4">
+                        <div class="position-relative d-inline-block">
+                            <canvas id="detectionChart" width="200" height="200"></canvas>
+                            <div class="position-absolute top-50 start-50 translate-middle text-center">
+                                <h3 class="mb-0">{{ total_detections }}</h3>
+                                <small class="text-muted">Total</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="d-flex justify-content-around">
+                        <div class="text-center">
+                            <div class="d-flex align-items-center justify-content-center mb-2">
+                                <div class="bg-danger rounded-circle me-2" style="width: 10px; height: 10px;"></div>
+                                <span>Fake</span>
+                            </div>
+                            <h4 class="mb-0">{{ fake_percentage }}%</h4>
+                        </div>
+                        <div class="text-center">
+                            <div class="d-flex align-items-center justify-content-center mb-2">
+                                <div class="bg-success rounded-circle me-2" style="width: 10px; height: 10px;"></div>
+                                <span>Real</span>
+                            </div>
+                            <h4 class="mb-0">{{ real_percentage }}%</h4>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="fas fa-microchip me-2 text-primary"></i>
+                        Model Performance
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="row g-4">
+                        <div class="col-md-4">
+                            <div class="border rounded-4 p-3">
+                                <h6 class="text-muted mb-2">Processing Time</h6>
+                                <div class="d-flex align-items-baseline">
+                                    <h3 class="mb-0">{{ avg_processing_time|floatformat:2 }}</h3>
+                                    <small class="text-muted ms-1">seconds</small>
+                                </div>
+                                <div class="progress mt-2" style="height: 4px;">
+                                    <div class="progress-bar bg-primary" role="progressbar" style="width: 75%"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="border rounded-4 p-3">
+                                <h6 class="text-muted mb-2">Success Rate</h6>
+                                <div class="d-flex align-items-baseline">
+                                    <h3 class="mb-0">{{ success_rate|floatformat:1 }}</h3>
+                                    <small class="text-muted ms-1">%</small>
+                                </div>
+                                <div class="progress mt-2" style="height: 4px;">
+                                    <div class="progress-bar bg-success" 
+                                         role="progressbar" 
+                                         data-width="{{ success_rate }}"
+                                         style="width: 0%">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="border rounded-4 p-3">
+                                <h6 class="text-muted mb-2">Memory Usage</h6>
+                                <div class="d-flex align-items-baseline">
+                                    <h3 class="mb-0">{{ memory_usage|floatformat:1 }}</h3>
+                                    <small class="text-muted ms-1">MB</small>
+                                </div>
+                                <div class="progress mt-2" style="height: 4px;">
+                                    <div class="progress-bar bg-warning" role="progressbar" style="width: 60%"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Set progress bar widths
+    document.querySelectorAll('.progress-bar').forEach(bar => {
+        const width = bar.getAttribute('data-width');
+        if (width) {
+            bar.style.width = width + '%';
+        }
+    });
+
+    // Detection distribution chart
+    const ctx = document.getElementById('detectionChart').getContext('2d');
+    const chartData = {
+        fake: Number('{{ fake_percentage|default:0|stringformat:"f" }}'),
+        real: Number('{{ real_percentage|default:0|stringformat:"f" }}')
+    };
+    
+    new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: ['Fake', 'Real'],
+            datasets: [{
+                data: [chartData.fake, chartData.real],
+                backgroundColor: ['#dc3545', '#198754'],
+                borderWidth: 0,
+                cutout: '75%'
+            }]
+        },
+        options: {
+            plugins: {
+                legend: {
+                    display: false
+                }
+            },
+            responsive: true,
+            maintainAspectRatio: false
+        }
+    });
+
+    // Period selector
+    document.querySelectorAll('[data-period]').forEach(button => {
+        button.addEventListener('click', function() {
+            document.querySelectorAll('[data-period]').forEach(btn => btn.classList.remove('active'));
+            this.classList.add('active');
+            // Add AJAX call here to update stats based on period
+        });
+    });
+});
+</script>
+{% endblock %} 
